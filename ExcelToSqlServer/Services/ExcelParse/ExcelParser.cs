@@ -165,11 +165,28 @@ namespace ExcelToSqlServer.Services.ExcelParse
                             };
 
                             var cellResult = _faultlessExecutionService.TryExecute(() => value.Value = row.Cell(field.ColumnPosition).GetString());
+
+
                             if (!cellResult.WasSuccessful)
                             {
-
-                                result.Errors.Add($"Error getting value for row {rowPosition} cell {field.ColumnPosition} ");
-                                value.Value = "-Error-";
+                                var innerResult = _faultlessExecutionService.TryExecute(() =>
+                                                                {
+                                                                    var c = row.Cell(field.ColumnPosition);
+                                                                    var prop = c.GetType().GetProperties().FirstOrDefault(x => x.Name == "InnerText");
+                                                                    if (prop == null)
+                                                                        throw new ApplicationException("InnertText property not found");
+                                                                    var ss = prop.GetValue(c)?.ToString();
+                                                                    value.Value = ss;
+                                                                });
+                                if (innerResult.WasSuccessful)
+                                {
+                                    result.Errors.Add($"Get value for row {rowPosition} cell {field.ColumnPosition} failed, but pulling innertext worked");
+                                }
+                                else
+                                {
+                                    result.Errors.Add($"Error getting value for row {rowPosition} cell {field.ColumnPosition} ");
+                                    value.Value = "-Error-";
+                                }
                             }
 
                             if (settings.TrimWhiteSpaceFromValues)
