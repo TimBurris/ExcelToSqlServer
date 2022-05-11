@@ -1,4 +1,5 @@
 ﻿using ClosedXML.Excel;
+using FaultlessExecution.Abstractions;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
@@ -12,6 +13,7 @@ namespace ExcelToSqlServer.Services.ExcelParse
     public class ExcelParser : Abstractions.IExcelParser
     {
         private readonly ILogger<ExcelParser> _logger;
+        private readonly IFaultlessExecutionService _faultlessExecutionService;
 
         private class Field
         {
@@ -28,9 +30,10 @@ namespace ExcelToSqlServer.Services.ExcelParse
             public string Key { get; set; }
         }
 
-        public ExcelParser(ILogger<ExcelParser> logger)
+        public ExcelParser(ILogger<ExcelParser> logger, FaultlessExecution.Abstractions.IFaultlessExecutionService faultlessExecutionService)
         {
             _logger = logger;
+            _faultlessExecutionService = faultlessExecutionService;
         }
 
         public ParseResult ParseWorkbook(Stream file, ParseSettings settings)
@@ -159,8 +162,15 @@ namespace ExcelToSqlServer.Services.ExcelParse
                             var value = new RecordValue()
                             {
                                 FieldKey = field.Key,
-                                Value = row.Cell(field.ColumnPosition).GetString()
                             };
+
+                            var cellResult = _faultlessExecutionService.TryExecute(() => value.Value = row.Cell(field.ColumnPosition).GetString());
+                            if (!cellResult.WasSuccessful)
+                            {
+
+                                result.Errors.Add($"Error getting value for row {rowPosition} cell {field.ColumnPosition} ");
+                                value.Value = "-Error-";
+                            }
 
                             if (settings.TrimWhiteSpaceFromValues)
                             {
