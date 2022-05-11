@@ -164,23 +164,15 @@ namespace ExcelToSqlServer.Services.ExcelParse
                                 FieldKey = field.Key,
                             };
 
+                            //try to get the value; this can be a common point of failure when excel uses functions like "VLOOKUP" and "HLOOKUP" which are not supported by closedxml
                             var cellResult = _faultlessExecutionService.TryExecute(() => value.Value = row.Cell(field.ColumnPosition).GetString());
-
 
                             if (!cellResult.WasSuccessful)
                             {
-                                var innerResult = _faultlessExecutionService.TryExecute(() =>
-                                                                {
-                                                                    var c = row.Cell(field.ColumnPosition);
-                                                                    var prop = c.GetType().GetProperties().FirstOrDefault(x => x.Name == "InnerText");
-                                                                    if (prop == null)
-                                                                        throw new ApplicationException("InnertText property not found");
-                                                                    var ss = prop.GetValue(c)?.ToString();
-                                                                    value.Value = ss;
-                                                                });
-                                if (innerResult.WasSuccessful)
+                                var cachedValueResult = _faultlessExecutionService.TryExecute(() => value.Value = row.Cell(field.ColumnPosition).CachedValue?.ToString());
+                                if (cachedValueResult.WasSuccessful)
                                 {
-                                    result.Errors.Add($"Get value for row {rowPosition} cell {field.ColumnPosition} failed, but pulling innertext worked");
+                                    result.Warnings.Add($"Get value for row {rowPosition} cell {field.ColumnPosition} failed so we used the Cached Value");
                                 }
                                 else
                                 {
