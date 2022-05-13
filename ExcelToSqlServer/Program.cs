@@ -21,7 +21,7 @@ namespace ExcelToSqlServer
         {
             string? fileName = args?.FirstOrDefault();
 
-            //first and foremost, did they give us a file to process.  if not they are terrible people and should never be allowed in public.
+            //first and foremost, did they give us a file to process.  if not, they are terrible people and should never be allowed in public.
             if (string.IsNullOrEmpty(fileName))
             {
                 Console.WriteLine("Bro, where's your file?");
@@ -55,7 +55,7 @@ namespace ExcelToSqlServer
                 Console.WriteLine("Com'on man, that file doesn't even exist");
             }
 
-            bool stayOpen = Configuration.GetValue<bool>("StayOpen");
+            bool stayOpen = Configuration?.GetValue<bool>("StayOpen") ?? false;//it's possible bad things happened and Configuration never go initialized, therefor null check and default false because better to make someone review the log file than have a background process hungup, waiting for input
 
             if (stayOpen)
             {
