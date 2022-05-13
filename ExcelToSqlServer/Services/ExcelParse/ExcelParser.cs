@@ -95,11 +95,13 @@ namespace ExcelToSqlServer.Services.ExcelParse
             var fields = new List<Field>();
 
             _logger.LogDebug("Read Headers...");
-            foreach (var c in startingRow.Cells())
+            foreach (var col in worksheet.Columns())
             {
                 cellPosition++;//yes increment even if Empty
+                var cell = startingRow.Cell(cellPosition);
 
-                if (settings.SkipBlankColumns && c.WorksheetColumn().IsEmpty())
+
+                if (settings.SkipBlankColumns && col.IsEmpty())
                     continue;
 
                 var field = new Field();
@@ -108,13 +110,13 @@ namespace ExcelToSqlServer.Services.ExcelParse
 
                 if (settings.FirstRowIsHeader)
                 {
-                    field.Name = c.GetString();
+                    field.Name = cell.GetString();
                     field.Key = settings.StripFieldNameToAlphaAndNumeric ? FieldStrip(field.Name) : field.Name;
 
                     if (string.IsNullOrEmpty(field.Key))
                     {
                         field.Key = $"Column{cellPosition}";
-                        result.Warnings.Add($"Column in Postion {cellPosition} is empty or contains only special characters");
+                        result.Warnings.Add($"Column Name in Postion {cellPosition} is empty or contains only special characters");
                     }
                 }
                 else
