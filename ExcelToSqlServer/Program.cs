@@ -36,22 +36,33 @@ namespace ExcelToSqlServer
 
             Console.WriteLine(fileName);
 
-            if (!System.IO.File.Exists(fileName))
+            if (System.IO.File.Exists(fileName))
+            {
+
+                IHost host;//this fella will get built in a try catch so we can track errors with intantiation versus errors running imports
+
+                host = Startup();
+                if (host != null)
+                {
+                    Run(fileName);
+                }
+
+                //   we must flush, otherwise the console might close out before logs are done writing
+                Log.CloseAndFlush();
+            }
+            else
             {
                 Console.WriteLine("Com'on man, that file doesn't even exist");
-                return;
             }
 
-            IHost host;//this fella will get built in a try catch so we can track errors with intantiation versus errors running imports
+            bool stayOpen = Configuration.GetValue<bool>("StayOpen");
 
-            host = Startup();
-            if (host != null)
+            if (stayOpen)
             {
-                Run(fileName);
+                Console.WriteLine("Press any key to exit");
+                Console.ReadKey();
             }
 
-            //   we must flush, otherwise the console might close out before logs are done writing
-            Log.CloseAndFlush();
             return;
         }
 
