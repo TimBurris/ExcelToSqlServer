@@ -39,7 +39,7 @@ namespace ExcelToSqlServer
             if (System.IO.File.Exists(fileName))
             {
 
-                IHost host;//this fella will get built in a try catch so we can track errors with intantiation versus errors running imports
+                IHost host;
 
                 host = Startup();
                 if (host != null)
