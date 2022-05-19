@@ -151,14 +151,15 @@ namespace ExcelToSqlServer
             {
                 var parserSettings = Configuration.GetSection("ParserSettings").Get<Services.ExcelParse.ParseSettings>();
                 var sqlSettings = Configuration.GetSection("sqlSettings").Get<Services.SqlServerWrite.SqlSettings>();
-                var parseResult = faultlessExecutionService.TryExecute(() => parser.ParseWorkbook(file, parserSettings));
+                var parseExecutionResult = faultlessExecutionService.TryExecute(() => parser.ParseWorkbook(file, parserSettings));
 
-                if (parseResult.WasSuccessful)
+                if (parseExecutionResult.WasSuccessful)
                 {
                     logger.LogInformation("Parse complete.");
-                    if (parseResult.ReturnValue.Records.Any())
+                    FaultlessExecution.Abstractions.FuncExecutionResult<Services.SqlServerWrite.WriteResult>? sqlResult = null;
+                    if (parseExecutionResult.ReturnValue.Records.Any())
                     {
-                        var sqlResult = faultlessExecutionService.TryExecute(() => sqlWriter.WriteToSqlServer(parseResult.ReturnValue.Records, sqlSettings));
+                        sqlResult = faultlessExecutionService.TryExecute(() => sqlWriter.WriteToSqlServer(parseExecutionResult.ReturnValue.Records, sqlSettings));
                         if (sqlResult.WasSuccessful)
                         {
                             logger.LogInformation("sql writing complete.");
@@ -173,17 +174,13 @@ namespace ExcelToSqlServer
                         logger.LogInformation("There were no records to write to sql");
                     }
 
+                    //we wait until AFTER sql write to print parsing summary because we want it to show up at the very end of the run, otherwise it will be lost within all the sql log infos
+                    LogParsingSummary(parseExecutionResult.ReturnValue, logger);
 
-                    int recCount = parseResult.ReturnValue.Records.Count;
-                    int warnCount = parseResult.ReturnValue.Warnings.Count;
-                    int errorCount = parseResult.ReturnValue.Errors.Count;
-
-                    parseResult.ReturnValue.Warnings.ForEach(x => logger.LogWarning(x));
-                    parseResult.ReturnValue.Errors.ForEach(x => logger.LogError(x));
-
-                    logger.LogInformation($"{warnCount} Warnings");
-                    logger.LogInformation($"{errorCount} Errors");
-                    logger.LogInformation($"{recCount} Total Records");
+                    if (sqlResult?.WasSuccessful == true)
+                    {
+                        LogSqlWriteSummary(sqlResult.ReturnValue, logger);
+                    }
                 }
                 else
                 {
@@ -193,6 +190,29 @@ namespace ExcelToSqlServer
             logger.LogInformation("Done");
         }
 
+        private static void LogParsingSummary(Services.ExcelParse.ParseResult parseResult, ILogger<Program> logger)
+        {
+            int recCount = parseResult.Records.Count;
+            int warnCount = parseResult.Warnings.Count;
+            int errorCount = parseResult.Errors.Count;
 
+            parseResult.Warnings.ForEach(x => logger.LogWarning(x));
+            parseResult.Errors.ForEach(x => logger.LogError(x));
+
+            logger.LogInformation($"Parsing: {warnCount} Warnings");
+            logger.LogInformation($"Parsing: {errorCount} Errors");
+            logger.LogInformation($"Parsing: {recCount} Total Records");
+        }
+        private static void LogSqlWriteSummary(Services.SqlServerWrite.WriteResult writeResult, ILogger<Program> logger)
+        {
+            int warnCount = writeResult.Warnings.Count;
+            int errorCount = writeResult.Errors.Count;
+
+            writeResult.Warnings.ForEach(x => logger.LogWarning(x));
+            writeResult.Errors.ForEach(x => logger.LogError(x));
+
+            logger.LogInformation($"Writing: {warnCount} Warnings");
+            logger.LogInformation($"Writing: {errorCount} Errors");
+        }
     }
 }

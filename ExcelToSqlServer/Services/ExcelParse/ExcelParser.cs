@@ -59,15 +59,6 @@ namespace ExcelToSqlServer.Services.ExcelParse
                     _logger.LogDebug("start parsing {Worksheet}", workshetName);
                     var worksheetResult = ParseWorksheet(ws, settings);
 
-                    //if importing all, then we need to create a new value that includes the worksheetname
-                    if (settings.AllWorksheets)
-                    {
-                        foreach (var r in worksheetResult.Records)
-                        {
-                            r.Values.Insert(index: 0, new RecordValue() { FieldKey = "WorksheetName", Value = workshetName });
-                        }
-                    }
-
                     //when pulling in, prefix with worksheetname if they are asking for all worksheets
                     string prefix = settings.AllWorksheets ? $" Worksheet '{workshetName}': " : "";
 

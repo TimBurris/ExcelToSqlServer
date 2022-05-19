@@ -9,6 +9,6 @@ namespace ExcelToSqlServer.Services.SqlServerWrite.Abstractions
 {
     public interface ISqlServerWriter
     {
-        void WriteToSqlServer(IEnumerable<ImportRecord> records, SqlSettings settings);
+        WriteResult WriteToSqlServer(IEnumerable<ImportRecord> records, SqlSettings settings);
     }
 }

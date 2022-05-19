@@ -1,4 +1,5 @@
 ﻿using ExcelToSqlServer.Services.ExcelParse;
+using FaultlessExecution;
 using FaultlessExecution.Abstractions;
 using Microsoft.Extensions.Logging;
 using System;
@@ -23,10 +24,18 @@ namespace ExcelToSqlServer.Services.SqlServerWrite
 
         private void CreateTable(IEnumerable<ImportRecord> records, Microsoft.Data.SqlClient.SqlConnection connection, string qualifiedTableName, string tableName, bool dropTable)
         {
+            records.ToList()
+                .ForEach(x =>
+                {
+                    x.Values.Add(new RecordValue() { FieldKey = "WorksheetName", Value = x.WorksheetName });
+                    x.Values.Add(new RecordValue() { FieldKey = "ExcelRowNumber", Value = x.RowPosition.ToString() });
+                });
+
             var columns = records
                               .SelectMany(x => x.Values.Select(y => y.FieldKey))
                               .Distinct(StringComparer.OrdinalIgnoreCase)
                               .ToList();
+
             string columnSql = string.Join(',', columns.Select(x => $"[{x}] nvarchar(max)"));
 
             if (dropTable)
@@ -42,9 +51,8 @@ namespace ExcelToSqlServer.Services.SqlServerWrite
         }
 
         //TODO: in the future we should tie directly to an ExcelParse ImportRecord, we should have our own and just transfer the data over; that would allow our sqlwriter to be independent of the excel parser
-        private void WriteToTable(IEnumerable<ImportRecord> records, Microsoft.Data.SqlClient.SqlConnection connection, string qualifiedTableName)
+        private void WriteToTable(ImportRecord rec, Microsoft.Data.SqlClient.SqlConnection connection, string qualifiedTableName)
         {
-
             /*
                 we will build an insert stabment that looks like:
                     Insert into tablename (col1, col2, col3) values(@0, @1, @2);
@@ -52,48 +60,42 @@ namespace ExcelToSqlServer.Services.SqlServerWrite
                 the values will be passed in a Params so we don't have to worry about any sql injection issues
             */
 
-            foreach (var rec in records)
+            //exclude any null/empty values
+            var applicableValues = rec.Values.Where(x => !string.IsNullOrEmpty(x.Value)).OrderBy(x => x.FieldKey).ToList();
+
+            //not using the "all columns" because this record might not have many of the columns, so our insert will be only for the columns we have
+            string columnNames = string.Join(',', applicableValues.Select(x => $"[{x.FieldKey}]"));
+
+            string values = string.Empty;
+
+            //here is werer we build our "Values" list which will look like "@0,@1,@2,@3" etc
+            for (int i = 0; i < applicableValues.Count; i++)
             {
-                //exclude any null/empty values
-                var applicableValues = rec.Values.Where(x => !string.IsNullOrEmpty(x.Value)).OrderBy(x => x.FieldKey).ToList();
-
-                //not using the "all columns" because this record might not have many of the columns, so our insert will be only for the columns we have
-                string columnNames = string.Join(',', applicableValues.Select(x => $"[{x.FieldKey}]"));
-
-                string values = string.Empty;
-
-                //here is werer we build our "Values" list which will look like "@0,@1,@2,@3" etc
-                for (int i = 0; i < applicableValues.Count; i++)
+                if (i > 0)
                 {
-                    if (i > 0)
-                    {
-                        values = values + ",";
-                    }
-                    values += $"@{i}";
+                    values = values + ",";
                 }
-
-                string recordSql = $"INSERT INTO {qualifiedTableName}({columnNames}) values({values})";
-
-                //these are the "Real" values, the actual data for @0, @1, etc
-                var parameters = applicableValues.Select(x => x.Value).ToList();
-                var result = _faultlessExecutionService.TryExecute(() => Execute(connection, recordSql, parameters));
-
-                if (result.WasSuccessful)
-                {
-                    //TODO: increment a success/fail counter?
-                }
+                values += $"@{i}";
             }
+
+            string recordSql = $"INSERT INTO {qualifiedTableName}({columnNames}) values({values})";
+
+            //these are the "Real" values, the actual data for @0, @1, etc
+            var parameters = applicableValues.Select(x => x.Value).ToList();
+
+            Execute(connection, recordSql, parameters);
         }
 
-        public void WriteToSqlServer(IEnumerable<ImportRecord> records, SqlSettings settings)
+        public WriteResult WriteToSqlServer(IEnumerable<ImportRecord> records, SqlSettings settings)
         {
             const string worksheetNameReplacementValue = "{WorksheetName}";
+            var result = new WriteResult();
 
             using (var con = new Microsoft.Data.SqlClient.SqlConnection(settings.ConnectionString))
             {
                 con.Open();
 
-                //if the want a separate table per worksheet, we'll group all the recrods by their worksheet, else we'll make a single group
+                //if they want a separate table per worksheet, we'll group all the recrods by their worksheet, else we'll make a single group
                 List<IGrouping<string, ImportRecord>>? groupedRecords;
                 if (settings.TableName.Contains(worksheetNameReplacementValue, StringComparison.OrdinalIgnoreCase))
                 {
@@ -111,10 +113,25 @@ namespace ExcelToSqlServer.Services.SqlServerWrite
                 {
                     string tableName = settings.TableName.Replace(worksheetNameReplacementValue, g.Key, StringComparison.OrdinalIgnoreCase);
                     string qualifiedTableName = $"[{schemaName}].[{tableName}]";
-                    CreateTable(g.ToList(), con, qualifiedTableName, tableName, settings.DropTable);
-                    WriteToTable(g.ToList(), con, qualifiedTableName);
+
+                    //try creating the table
+                    var createTableResult = _faultlessExecutionService.TryExecute(() => CreateTable(g.ToList(), con, qualifiedTableName, tableName, settings.DropTable));
+                    if (createTableResult.WasSuccessful)
+                    {
+                        foreach (var record in g.ToList())
+                        {
+                            _faultlessExecutionService.TryExecute(() => WriteToTable(record, con, qualifiedTableName))
+                               .OnException(ex => result.Errors.Add($"Failed writing Row at position {record.RowPosition}. Review error log for full stack trace. ({ex.Exception.Message})"));
+                        }
+                    }
+                    else
+                    {
+                        result.Errors.Add($"Failed to Create Table {schemaName}.{tableName}");
+                    }
                 }
             }
+
+            return result;
         }
 
         private void Execute(Microsoft.Data.SqlClient.SqlConnection connection, string sql, List<string> parameterValues)
