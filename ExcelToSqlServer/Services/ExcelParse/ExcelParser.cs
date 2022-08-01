@@ -102,12 +102,52 @@ namespace ExcelToSqlServer.Services.ExcelParse
                 if (settings.FirstRowIsHeader)
                 {
                     field.Name = cell.GetString();
-                    field.Key = settings.StripFieldNameToAlphaAndNumeric ? FieldStrip(field.Name) : field.Name;
+                    field.Key = field.Name;
+
+                    //do field replacement before StripFieldNameToAlphaAndNumeric because they may want to replace something like # with number, which has to be done BEFORE striping thos chars out
+                    if (settings.FieldNameReplacements?.Any() == true)
+                    {
+                        foreach (var replacementSetting in settings.FieldNameReplacements)
+                        {
+                            field.Key = field.Name.Replace(replacementSetting.MatchingText, replacementSetting.ReplacementText, StringComparison.OrdinalIgnoreCase);
+                        }
+                    }
+
+                    if (settings.StripFieldNameToAlphaAndNumeric)
+                    {
+                        field.Key = FieldStrip(field.Key);
+                    }
 
                     if (string.IsNullOrEmpty(field.Key))
                     {
                         field.Key = $"Column{cellPosition}";
                         result.Warnings.Add($"Column Name in Postion {cellPosition} is empty or contains only special characters");
+                    }
+                    else
+                    {
+                        if (field.Key.Length > settings.FiedNameCharacterLimit)
+                        {
+                            if (settings.FieldNameOverLimitSplitFiftyFifty)
+                            {
+                                //on an even number left and right would be the same, but on an odd number one will be a single char longer, which is why we have to compute right, not just assume both left/right will be the same
+                                int leftLength = (int)Math.Round(settings.FiedNameCharacterLimit / 2, decimals: 0, MidpointRounding.AwayFromZero);
+                                int rightLength = settings.FiedNameCharacterLimit - leftLength;
+
+                                string leftside = field.Key.Substring(0, leftLength);
+                                string rightside = field.Key.Substring(startIndex: field.Key.Length - rightLength, rightLength);
+
+                                string newFieldKey = leftside + rightside;
+
+                                _logger.LogInformation("Field key '{originalFieldKey} was stripped to '{newFieldKey}' in order to meet the {characterLimit} character limit",
+                                    field.Key, newFieldKey, settings.FiedNameCharacterLimit);
+
+                                field.Key = newFieldKey;
+                            }
+                            else
+                            {
+                                field.Key = field.Key.Substring(0, settings.FiedNameCharacterLimit);
+                            }
+                        }
                     }
                 }
                 else
