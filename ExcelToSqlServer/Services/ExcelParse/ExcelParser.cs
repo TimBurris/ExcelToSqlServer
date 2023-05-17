@@ -109,7 +109,7 @@ namespace ExcelToSqlServer.Services.ExcelParse
                     {
                         foreach (var replacementSetting in settings.FieldNameReplacements)
                         {
-                            field.Key = field.Name.Replace(replacementSetting.MatchingText, replacementSetting.ReplacementText, StringComparison.OrdinalIgnoreCase);
+                            field.Key = field.Key.Replace(replacementSetting.MatchingText, replacementSetting.ReplacementText, StringComparison.OrdinalIgnoreCase);
                         }
                     }
 
